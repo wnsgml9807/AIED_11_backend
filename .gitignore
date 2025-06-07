@@ -1,0 +1,15 @@
+.env
+__pycache__/
+venv/
+chroma/
+OLD/
+
+# 파이썬 캐시 파일
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 환경 변수 파일
+.env
+
+DB/

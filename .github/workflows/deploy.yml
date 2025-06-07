@@ -1,0 +1,64 @@
+name: Deploy to Server
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.8.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+      
+      - name: Add SSH Known Hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.SERVER_IP }} >> ~/.ssh/known_hosts
+      
+      - name: Deploy to server
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }} << EOF
+            cd ~/aied
+            
+            # 현재 진행 중인 병합이 있다면 중단
+            git merge --abort || true
+            
+            # 작업 중인 변경사항 저장
+            git stash || true
+            
+            # HTTPS URL로 변경 (PAT 포함)
+            git remote set-url origin https://${GH_PAT}@github.com/wnsgml9807/AIED_11_backend.git
+            
+            # 원격 저장소에서 강제 동기화 (충돌 방지)
+            git fetch origin
+            git reset --hard origin/main
+            
+            # 도커 명령어 실행
+            docker-compose down
+            
+            # 사용하지 않는 도커 이미지 정리 (배포 전)
+            echo "Cleaning up dangling images before build..."
+            docker image prune -f
+            
+            docker-compose build
+            docker-compose up -d
+            
+            # 추가 정리 - 태그가 없는 이미지 중 최신 3개만 남기고 제거
+            echo "Cleaning up old images after deployment..."
+            KEEP_IMAGES=3
+            docker rmi \$(docker images -f "dangling=true" --format "{{.ID}}" | tail -n +\$((KEEP_IMAGES + 1))) 2>/dev/null || true
+            
+            echo "Deployment completed at \$(date)"
+            
+            # 보안을 위해 인증 정보 제거
+            rm -f ~/.git-credentials
+            git remote set-url origin https://github.com/wnsgml9807/AIED_11_backend.git
+          EOF
