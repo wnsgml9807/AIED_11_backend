@@ -177,11 +177,11 @@ def serialize_task_list(task_list: List) -> List[Dict]:
     serialized_list = []
     for task in task_list:
         if isinstance(task, TaskState):
-            serialized_list.append(task.dict())
+            serialized_list.append(task.model_dump())
+        elif hasattr(task, 'model_dump'):
+            serialized_list.append(task.model_dump())
         elif hasattr(task, 'dict'):
             serialized_list.append(task.dict())
-        elif isinstance(task, dict):
-            serialized_list.append(task)
         else:
             # 기타 경우 강제 dict 변환
             serialized_list.append(task.__dict__ if hasattr(task, '__dict__') else task)
@@ -293,11 +293,11 @@ async def update_task(req: TaskUpdateRequest):
         for idx, task in enumerate(task_list):
             # TaskState 객체인지 dict인지 확인
             if isinstance(task, TaskState):
-                task_dict = task.dict()
+                task_dict = task.model_dump()
+            elif hasattr(task, 'model_dump'):
+                task_dict = task.model_dump()
             elif hasattr(task, 'dict'):
                 task_dict = task.dict()
-            else:
-                task_dict = task
                 
             if task_dict["date"] == req.date and task_dict["task_no"] == req.task_no:
                 # TaskState 객체로 다시 생성해서 교체
