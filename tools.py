@@ -203,26 +203,26 @@ async def update_task_list(
     """
     from langgraph.types import Command
     
+    #logger.info(f"final_task_list: {final_task_list}")
+    
     # TaskState 객체들을 검증하고 정리
     validated_tasks = []
     for task in final_task_list:
         if isinstance(task, TaskState):
             validated_tasks.append(task)
+            #logger.info(f"Validated task: {task}")
         elif isinstance(task, dict):
-            # dict인 경우 TaskState로 변환
             try:
                 validated_tasks.append(TaskState(**task))
             except Exception as e:
                 logger.error(f"Invalid task data: {task}, error: {e}")
-                continue
         else:
             logger.error(f"Unknown task type: {type(task)}")
-            continue
-    
-    # Command를 통해 전체 task_list 교체
-        return Command(
-            update={
-            "task_list": validated_tasks,
-            "messages": [ToolMessage(content="Task list updated", tool_call_id=tool_call_id)]
-            }
-        )
+
+    # Command를 통해 전체 task_list 교체 (for 루프 종료 후 한 번만 반환)
+    return Command(
+        update={
+        "task_list": validated_tasks,
+        "messages": [ToolMessage(content="Task list updated", tool_call_id=tool_call_id)]
+        }
+    )

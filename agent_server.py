@@ -1,3 +1,4 @@
+from dataclasses import Field
 import logging
 import json
 import os
@@ -176,15 +177,7 @@ def serialize_task_list(task_list: List) -> List[Dict]:
     """TaskState 객체들을 직렬화 가능한 dictionary로 변환"""
     serialized_list = []
     for task in task_list:
-        if isinstance(task, TaskState):
-            serialized_list.append(task.model_dump())
-        elif hasattr(task, 'model_dump'):
-            serialized_list.append(task.model_dump())
-        elif hasattr(task, 'dict'):
-            serialized_list.append(task.dict())
-        else:
-            # 기타 경우 강제 dict 변환
-            serialized_list.append(task.__dict__ if hasattr(task, '__dict__') else task)
+        serialized_list.append(task.model_dump())
     return serialized_list
 
 async def stream_agent_response(req: ChatRequest):
@@ -237,7 +230,9 @@ async def stream_agent_response(req: ChatRequest):
         # 스트리밍 끝날 때 최종 task_list 상태 전송
         try:
             final_state = await graph.aget_state(cfg)
+            
             if final_state.values and "task_list" in final_state.values:
+                #logger.info(f"최종 task_list: {final_state.values['task_list']}")
                 task_list = final_state.values["task_list"]
                 serialized_tasks = serialize_task_list(task_list)
                 yield json.dumps({
@@ -273,6 +268,8 @@ async def update_task(req: TaskUpdateRequest):
         
         cfg = {"configurable": {"thread_id": req.session_id}}
         
+        #logger.info(f"Task update request: {req}")
+        
         # 현재 state 가져와서 task_list 업데이트
         try:
             current_state = await graph.aget_state(cfg, subgraphs=True)
@@ -282,6 +279,8 @@ async def update_task(req: TaskUpdateRequest):
         
         task_list = current_state.values.get("task_list", []) if current_state.values else []
         
+        #logger.info(f"Current state: {task_list}")
+        
         # task_list가 비어있으면 빈 리스트로 초기화
         if not task_list:
             logger.info(f"세션 {req.session_id}의 task_list가 비어있습니다. 초기화합니다.")
@@ -290,34 +289,42 @@ async def update_task(req: TaskUpdateRequest):
         
         # 해당 task 찾아서 업데이트
         found = False
-        for idx, task in enumerate(task_list):
-            # TaskState 객체인지 dict인지 확인
-            if isinstance(task, TaskState):
-                task_dict = task.model_dump()
-            elif hasattr(task, 'model_dump'):
-                task_dict = task.model_dump()
-            elif hasattr(task, 'dict'):
-                task_dict = task.dict()
-                
-            if task_dict["date"] == req.date and task_dict["task_no"] == req.task_no:
-                # TaskState 객체로 다시 생성해서 교체
-                if isinstance(task, TaskState):
-                    task.is_completed = req.completed
-                elif hasattr(task, 'dict'):
-                    # Pydantic 객체인 경우 새로 생성
-                    updated_task = TaskState(**{**task_dict, "is_completed": req.completed})
-                    task_list[idx] = updated_task
-                else:
-                    # 일반 dict인 경우
-                    task["is_completed"] = req.completed
+        updated_task_list = []
+    
+        for task in task_list:
+            month = task.month
+            date = task.date
+            task_no = task.task_no
+            start_pg = task.start_pg
+            end_pg = task.end_pg
+            title = task.title
+            summary = task.summary
+            
+            if date == req.date and task_no == req.task_no:
+                updated_task = TaskState(
+                    month=month,
+                    date=date,
+                    task_no=task_no,
+                    start_pg=start_pg,
+                    end_pg=end_pg,
+                    title=title,
+                    summary=summary,
+                    is_completed=req.completed)
+                updated_task_list.append(updated_task)
+                #logger.info(f"Updated task: {updated_task}")
                 found = True
-                break
+            else:
+                # 변경되지 않은 task는 TaskState로 변환하여 추가
+                updated_task_list.append(task)
                 
         if not found:
             raise HTTPException(status_code=404, detail=f"Task not found: {req.date} task_no {req.task_no}")
 
         # aupdate_state API로 state 직접 업데이트
-        await graph.aupdate_state(cfg, {"task_list": task_list})
+        await graph.aupdate_state(cfg, {"task_list": updated_task_list})
+        
+        #logger.info(f"prev_task_list: {task_list}")
+        #logger.info(f"update_task_list: {updated_task_list}")
         
         return {"status": "success", "message": "Task updated successfully"}
 
@@ -341,13 +348,10 @@ async def manual_cleanup():
 
 
 @app.post("/data/upload")
-async def upload_textbook(file: UploadFile = File(...), session_id: str = Form("default"), title: str = Form(...)):
+async def upload_textbook(file: UploadFile = File(...), session_id: str = Form("default")):
     """PDF 문제집을 업로드하고 벡터화합니다."""
     try:
-        logger.info(f"업로드 요청 수신 - 파일명: {file.filename}, 세션ID: {session_id}, 제목: {title}")
-        
-        if not title.strip():
-            raise HTTPException(status_code=400, detail="title is required")
+        logger.info(f"업로드 요청 수신 - 파일명: {file.filename}, 세션ID: {session_id}")
         
         # 파일 타입 검증
         if not file.filename.lower().endswith('.pdf'):
@@ -365,7 +369,7 @@ async def upload_textbook(file: UploadFile = File(...), session_id: str = Form("
         
         # PDF 처리 및 벡터화 (비동기, 세션별)
         logger.info(f"PDF 처리 시작 - 경로: {temp_file_path}, 파일명: {file.filename}, 세션: {session_id}")
-        result = await process_pdf_to_vectordb(temp_file_path, file.filename, session_id, title.strip())
+        result = await process_pdf_to_vectordb(temp_file_path, file.filename, session_id)
         logger.info(f"PDF 처리 결과: {result.get('success', 'Unknown')}")
         
         # 임시 파일 삭제

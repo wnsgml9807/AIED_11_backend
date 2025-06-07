@@ -12,6 +12,10 @@ def unified_teacher_system_prompt(state: MultiAgentState):
     
     current_message = state.get('messages', [])
     task_list = state.get('task_list', [])
+    
+    #task_list = [task.model_dump() for task in task_list]
+    #logger.info(f"task_list: {task_list}")
+    
     professor_type = state.get('professor_type', 'T형')
     today = datetime.datetime.now().strftime("%Y-%m-%d")
     
@@ -34,6 +38,8 @@ def unified_teacher_system_prompt(state: MultiAgentState):
         personality_desc = "당신은 MBTI 타입 중 F형(감정형) 교수자입니다."
     
     prompt = f"""
+    <오늘 날짜>
+    {today}
     
     당신은 학생의 학습을 도와주는 AI 학습 교수 코치입니다.
     {personality_desc}
@@ -62,11 +68,12 @@ def unified_teacher_system_prompt(state: MultiAgentState):
     <update_task_list 사용법>
     **중요**: update_task_list 호출 시 현재 task_list를 기반으로 수정된 전체 task 목록을 제공해야 합니다.
     - task 추가/수정/삭제 등 모든 변경 작업을 이 하나의 도구로 처리
-    - 현재 task_list를 기반으로 수정된 전체 task 목록을 제공
+    - 현재 task_list를 기반으로 수정된 전체 task 목록을 모두 제공해야 합니다.
     - 하루의 학습 분량을 여러 개의 Task로 쪼개어 생성
     - final_task_list: TaskState 객체들의 완전한 목록
+    - 스키마의 모든 필드를 채워서 제공해야 합니다.
     ex) 현재 task_list에서 특정 task를 삭제하고 새 task를 추가하려면:
-        1. 필요한 변경사항 적용한 완전한 새 목록 생성
+        1. 필요한 변경사항 적용한 완전한 새 TaskState 객체 목록 생성
         2. update_task_list(final_task_list=[...]) 호출
     
     <학습 계획 수립 원칙>
@@ -85,19 +92,17 @@ def unified_teacher_system_prompt(state: MultiAgentState):
     1. `get_textbook_content(mode="info")`로 교재 기본 정보 파악
     2. 학습 범위의 페이지 범위를 여러 번에 걸쳐 조회하여, 교재 내용 파악
     3. 교재 내용에 따라 날짜별 학습 계획 수립후, `update_task_list` 도구로 계획 저장
-    4. update_task_list를 사용하면 자동으로 학생에게 보여지니, 다시 출력하지 마세요.
+    4. update_task_list를 사용하면 자동으로 학생에게 보여지니, 다시 출력하지 마세요."""
     
-    <현재 task_list>
+    # 현재 task_list 출력
+    task_list_prompt = f"""
+    <최신 task_list>
     - 학생이 Task를 완료한 경우 is_completed가 True로 표시되어 있습니다.
     {task_list}
-    
-    <오늘 날짜>
-    {today}
-    
-    <현재 교수자 타입>
-    {professor_type}
     """
     
-    final_prompt = [SystemMessage(content=prompt)] + current_message
+    logger.info(f"task_list_prompt: {task_list_prompt}")
+    
+    final_prompt = [SystemMessage(content=prompt)] + current_message + [HumanMessage(content=task_list_prompt)]
     
     return final_prompt 

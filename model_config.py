@@ -49,7 +49,7 @@ def merge_task_lists(existing: List[TaskState], new: List[TaskState]) -> List[Ta
 # Shared State Schema for all agents
 class MultiAgentState(AgentState):
     messages: Annotated[List[BaseMessage], merge_messages]
-    task_list: Annotated[List[Dict[str, Any]], merge_task_lists] = []  # 세션별 task 관리를 위한 필드
+    task_list: Annotated[List[TaskState], merge_task_lists] = []  # 세션별 task 관리를 위한 필드
     professor_type: str = "T형"  # 교수자 타입 (T형 또는 F형)
     session_id: str = "default"  # 세션 ID
 
