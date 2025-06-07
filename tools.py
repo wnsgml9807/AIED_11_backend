@@ -220,8 +220,8 @@ async def update_task_list(
             continue
     
     # Command를 통해 전체 task_list 교체
-    return Command(
-        update={
+        return Command(
+            update={
             "task_list": validated_tasks,
             "messages": [ToolMessage(content="Task list updated", tool_call_id=tool_call_id)]
             }

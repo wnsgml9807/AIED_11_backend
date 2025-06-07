@@ -20,3 +20,5 @@ typing-extensions
 aiofiles
 PyMuPDF
 python-multipart
+pandas
+numpy
