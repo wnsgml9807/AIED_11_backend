@@ -98,7 +98,8 @@ async def get_textbook_content(
             return ToolMessage(
                 content=info_text,
             tool_call_id=tool_call_id,
-        )
+                name="get_textbook_content"
+                )
         
         elif mode == "content":
             # 페이지 범위 검증
@@ -106,12 +107,14 @@ async def get_textbook_content(
                 return ToolMessage(
                     content="content 모드에서는 start_page와 end_page를 모두 지정해야 합니다.",
             tool_call_id=tool_call_id,
-        )
+                    name="get_textbook_content"
+                    )
         
             if end_page - start_page + 1 > 20:
                 return ToolMessage(
                     content="한 번에 최대 20페이지까지만 조회할 수 있습니다. 페이지 범위를 줄여주세요.",
                     tool_call_id=tool_call_id,
+                    name="get_textbook_content"
                 )
             
             # 페이지 범위로 내용 조회 (개별 페이지별로 가져오기)
@@ -135,6 +138,7 @@ async def get_textbook_content(
                 return ToolMessage(
                     content=f"페이지 {start_page}-{end_page} 범위에서 내용을 찾을 수 없습니다.",
                     tool_call_id=tool_call_id,
+                    name="get_textbook_content"
                 )
             
             # 페이지별로 정렬하여 내용 정리
@@ -157,12 +161,14 @@ async def get_textbook_content(
             return ToolMessage(
                 content=content_text,
                 tool_call_id=tool_call_id,
+                name="get_textbook_content"
             )
             
         else:
             return ToolMessage(
                 content="mode는 'info' 또는 'content'만 사용할 수 있습니다.",
             tool_call_id=tool_call_id,
+            name="get_textbook_content"
         )
            
     except Exception as e:
@@ -170,6 +176,7 @@ async def get_textbook_content(
         return ToolMessage(
             content=f"교재 조회 중 오류 발생: {e}\n(ChromaDB가 올바르게 설정되어 있는지 확인해주세요)",
             tool_call_id=tool_call_id,
+            name="get_textbook_content"
         )
         
 # -----------------------------
@@ -223,6 +230,6 @@ async def update_task_list(
     return Command(
         update={
         "task_list": validated_tasks,
-        "messages": [ToolMessage(content="Task list updated", tool_call_id=tool_call_id)]
-        }
-    )
+        "messages": [ToolMessage(content="Task list updated", tool_call_id=tool_call_id, name="update_task_list")]
+            }
+        )

@@ -369,7 +369,7 @@ async def upload_textbook(file: UploadFile = File(...), session_id: str = Form("
         
         # PDF 처리 및 벡터화 (비동기, 세션별)
         logger.info(f"PDF 처리 시작 - 경로: {temp_file_path}, 파일명: {file.filename}, 세션: {session_id}")
-        result = await process_pdf_to_vectordb(temp_file_path, file.filename, session_id)
+        result = await process_pdf_to_vectordb(temp_file_path, file.filename, session_id, file.filename)
         logger.info(f"PDF 처리 결과: {result.get('success', 'Unknown')}")
         
         # 임시 파일 삭제
