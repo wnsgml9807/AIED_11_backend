@@ -95,9 +95,47 @@ def extract_text_from_pdf(pdf_path: str) -> List[Dict]:
         logger.error(f"PDF 텍스트 추출 중 오류: {e}")
         return []
 
+async def process_single_page_thumbnail(page, page_num: int, thumbnails_dir: str, mat: fitz.Matrix) -> bool:
+    """단일 페이지의 썸네일을 생성하는 비동기 함수"""
+    try:
+        # 페이지를 이미지로 렌더링
+        pix = page.get_pixmap(matrix=mat, alpha=False)
+        
+        # PIL Image로 변환
+        img_data = pix.tobytes("png")
+        img = Image.open(io.BytesIO(img_data))
+        
+        # RGB로 변환 (JPEG 저장을 위해)
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
+        
+        # 썸네일 크기로 리사이즈 (비율 유지)
+        thumbnail_width = 300
+        aspect_ratio = img.height / img.width
+        thumbnail_height = int(thumbnail_width * aspect_ratio)
+        
+        img_thumbnail = img.resize((thumbnail_width, thumbnail_height), Image.Resampling.LANCZOS)
+        
+        # 썸네일 저장
+        thumbnail_path = os.path.join(thumbnails_dir, f"page_{page_num + 1}.jpg")
+        
+        # 이미지 저장을 별도 스레드에서 처리 (I/O 블로킹 방지)
+        await asyncio.get_event_loop().run_in_executor(
+            None, 
+            lambda: img_thumbnail.save(thumbnail_path, "JPEG", quality=90, optimize=True)
+        )
+        
+        logger.debug(f"페이지 {page_num + 1} 썸네일 생성 완료")
+        return True
+        
+    except Exception as e:
+        logger.error(f"페이지 {page_num + 1} 썸네일 생성 실패: {e}")
+        return False
+
 async def generate_page_thumbnails(pdf_path: str, session_id: str) -> bool:
     """
     PDF의 각 페이지를 썸네일 이미지로 변환하여 저장합니다.
+    100개씩 배치로 비동기 처리합니다.
     
     Args:
         pdf_path: PDF 파일 경로
@@ -108,6 +146,7 @@ async def generate_page_thumbnails(pdf_path: str, session_id: str) -> bool:
     """
     try:
         doc = fitz.open(pdf_path)
+        total_pages = len(doc)
         
         # 썸네일 저장 디렉토리 생성
         thumbnails_dir = os.path.join(DB_DIR, f"textbook_{session_id}", "thumbnails")
@@ -118,42 +157,46 @@ async def generate_page_thumbnails(pdf_path: str, session_id: str) -> bool:
         zoom = 200 / 72  # 기본 72 DPI에서 200 DPI로 변환
         mat = fitz.Matrix(zoom, zoom)
         
-        for page_num in range(len(doc)):
-            page = doc.load_page(page_num)
-            
-            # 페이지를 이미지로 렌더링
-            pix = page.get_pixmap(matrix=mat, alpha=False)
-            
-            # PIL Image로 변환
-            img_data = pix.tobytes("png")
-            img = Image.open(io.BytesIO(img_data))
-            
-            # RGB로 변환 (JPEG 저장을 위해)
-            if img.mode != 'RGB':
-                img = img.convert('RGB')
-            
-            # 썸네일 크기로 리사이즈 (비율 유지)
-            # A4 비율(210:297) 유지하며 너비 300px로 설정
-            thumbnail_width = 300
-            aspect_ratio = img.height / img.width
-            thumbnail_height = int(thumbnail_width * aspect_ratio)
-            
-            img_thumbnail = img.resize((thumbnail_width, thumbnail_height), Image.Resampling.LANCZOS)
-            
-            # 썸네일 저장
-            thumbnail_path = os.path.join(thumbnails_dir, f"page_{page_num + 1}.jpg")
-            img_thumbnail.save(thumbnail_path, "JPEG", quality=90, optimize=True)
-            
-            logger.info(f"페이지 {page_num + 1} 썸네일 생성 완료: {thumbnail_path}")
-            
-            # 10페이지마다 잠시 대기 (시스템 부하 방지)
-            if (page_num + 1) % 10 == 0:
-                await asyncio.sleep(0.1)
+        logger.info(f"총 {total_pages}페이지 썸네일 생성 시작 (배치 크기: 100)")
         
-        total_pages = len(doc)
+        # 배치 처리
+        THUMBNAIL_BATCH_SIZE = 100
+        success_count = 0
+        
+        for batch_start in range(0, total_pages, THUMBNAIL_BATCH_SIZE):
+            batch_end = min(batch_start + THUMBNAIL_BATCH_SIZE, total_pages)
+            batch_num = batch_start // THUMBNAIL_BATCH_SIZE + 1
+            total_batches = (total_pages - 1) // THUMBNAIL_BATCH_SIZE + 1
+            
+            logger.info(f"썸네일 배치 {batch_num}/{total_batches} 처리 중 (페이지 {batch_start+1}-{batch_end})")
+            
+            # 현재 배치의 모든 페이지를 비동기로 동시 처리
+            tasks = []
+            for page_num in range(batch_start, batch_end):
+                page = doc.load_page(page_num)
+                task = process_single_page_thumbnail(page, page_num, thumbnails_dir, mat)
+                tasks.append(task)
+            
+            # 배치 내 모든 작업을 동시 실행
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # 성공한 작업 수 계산
+            batch_success = sum(1 for r in results if r is True)
+            success_count += batch_success
+            
+            logger.info(f"배치 {batch_num} 완료: {batch_success}/{len(tasks)}개 성공")
+            
+            # 메모리 관리를 위해 배치 간 잠시 대기
+            if batch_end < total_pages:
+                await asyncio.sleep(0.5)
+        
         doc.close()
-        logger.info(f"모든 페이지 썸네일 생성 완료: 총 {total_pages} 페이지")
-        return True
+        
+        success_rate = (success_count / total_pages) * 100 if total_pages > 0 else 0
+        logger.info(f"모든 페이지 썸네일 생성 완료: {success_count}/{total_pages} 페이지 성공 ({success_rate:.1f}%)")
+        
+        # 90% 이상 성공 시 전체 성공으로 간주
+        return success_rate >= 90.0
         
     except Exception as e:
         logger.error(f"썸네일 생성 중 오류: {e}")

@@ -26,6 +26,7 @@ from langchain_core.messages import (
     AIMessageChunk,
 )
 from pydantic import BaseModel
+import base64
 
 from graph_factory import create_compiled_graph
 from model_config import TaskState
@@ -173,11 +174,30 @@ async def cleanup_session_graph(session_id: str):
 # 스트리밍 핸들러
 # ───────────────────────────────────────────────
 
-def serialize_task_list(task_list: List) -> List[Dict]:
-    """TaskState 객체들을 직렬화 가능한 dictionary로 변환"""
+def serialize_task_list(task_list: List, session_id: str) -> List[Dict]:
+    """TaskState 객체들을 직렬화 가능한 dictionary로 변환하고 썸네일을 Base64로 인코딩"""
     serialized_list = []
     for task in task_list:
-        serialized_list.append(task.model_dump())
+        task_dict = task.model_dump()
+        
+        # Base64 썸네일 인코딩 추가
+        start_page = task_dict.get('start_pg')
+        if start_page:
+            thumbnail_path = os.path.join("DB", "textbook", f"textbook_{session_id}", "thumbnails", f"page_{start_page}.jpg")
+            if os.path.exists(thumbnail_path):
+                try:
+                    with open(thumbnail_path, "rb") as image_file:
+                        encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
+                        task_dict['thumbnail_base64'] = f"data:image/jpeg;base64,{encoded_string}"
+                except Exception as e:
+                    logger.error(f"썸네일 인코딩 오류: {e}")
+                    task_dict['thumbnail_base64'] = None
+            else:
+                task_dict['thumbnail_base64'] = None
+        else:
+            task_dict['thumbnail_base64'] = None
+            
+        serialized_list.append(task_dict)
     return serialized_list
 
 def serialize_feedback_list(feedback_list: List) -> List[Dict]:
@@ -242,7 +262,7 @@ async def stream_agent_response(req: ChatRequest):
             if final_state.values and "task_list" in final_state.values:
                 #logger.info(f"최종 task_list: {final_state.values['task_list']}")
                 task_list = final_state.values["task_list"]
-                serialized_tasks = serialize_task_list(task_list)
+                serialized_tasks = serialize_task_list(task_list, req.session_id)
                 yield json.dumps({
                     "type": "task_update",
                     "text": json.dumps(serialized_tasks),
