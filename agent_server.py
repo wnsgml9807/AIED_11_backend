@@ -14,7 +14,7 @@ import aiosqlite
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Cookie, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
 import tempfile
 import aiofiles
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
@@ -180,6 +180,13 @@ def serialize_task_list(task_list: List) -> List[Dict]:
         serialized_list.append(task.model_dump())
     return serialized_list
 
+def serialize_feedback_list(feedback_list: List) -> List[Dict]:
+    """FeedbackState 객체들을 직렬화 가능한 dictionary로 변환"""
+    serialized_list = []
+    for feedback in feedback_list:
+        serialized_list.append(feedback.model_dump())
+    return serialized_list
+
 async def stream_agent_response(req: ChatRequest):
     await cleanup_old_sessions() # 스트림 시작 시 오래된 세션 정리
     session_data = await get_session_graph(req.session_id)
@@ -227,10 +234,11 @@ async def stream_agent_response(req: ChatRequest):
         logger.error("스트리밍 오류", exc_info=e)
         yield json.dumps({"type": "error", "text": str(e), "response_agent": "system"})
     finally:
-        # 스트리밍 끝날 때 최종 task_list 상태 전송
+        # 스트리밍 끝날 때 최종 상태 전송
         try:
             final_state = await graph.aget_state(cfg)
             
+            # task_list 전송
             if final_state.values and "task_list" in final_state.values:
                 #logger.info(f"최종 task_list: {final_state.values['task_list']}")
                 task_list = final_state.values["task_list"]
@@ -240,8 +248,18 @@ async def stream_agent_response(req: ChatRequest):
                     "text": json.dumps(serialized_tasks),
                     "response_agent": "system"
                 })
+            
+            # feedback_list 전송
+            if final_state.values and "feedback_list" in final_state.values:
+                feedback_list = final_state.values["feedback_list"]
+                serialized_feedbacks = serialize_feedback_list(feedback_list)
+                yield json.dumps({
+                    "type": "feedback_update",
+                    "text": json.dumps(serialized_feedbacks),
+                    "response_agent": "system"
+                })
         except Exception as e:
-            logger.error(f"최종 task_list 전송 오류: {e}")
+            logger.error(f"최종 상태 전송 오류: {e}")
         
         yield json.dumps({"type": "end", "text": "[STREAM_END]", "response_agent": "system"})
 
@@ -482,6 +500,35 @@ async def get_session_professor_type(session_id: str):
     except Exception as e:
         logger.error(f"세션 교수자 타입 조회 오류: {e}")
         raise HTTPException(status_code=500, detail=f"세션 교수자 타입 조회 중 오류: {str(e)}")
+
+
+@app.get("/data/textbook/{session_id}/thumbnail/{page_number}")
+async def get_textbook_thumbnail(session_id: str, page_number: int):
+    """특정 페이지의 썸네일 이미지를 반환합니다."""
+    try:
+        # 썸네일 파일 경로 구성
+        thumbnail_path = os.path.join("DB", "textbook", f"textbook_{session_id}", "thumbnails", f"page_{page_number}.jpg")
+        
+        # 파일 존재 확인
+        if not os.path.exists(thumbnail_path):
+            logger.warning(f"썸네일 파일 없음: {thumbnail_path}")
+            raise HTTPException(status_code=404, detail=f"페이지 {page_number}의 썸네일을 찾을 수 없습니다.")
+        
+        # 이미지 파일 반환
+        return FileResponse(
+            path=thumbnail_path,
+            media_type="image/jpeg",
+            headers={
+                "Cache-Control": "public, max-age=3600",  # 1시간 캐시
+                "Content-Disposition": f"inline; filename=page_{page_number}.jpg"
+            }
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"썸네일 조회 오류: {e}")
+        raise HTTPException(status_code=500, detail=f"썸네일 조회 중 오류: {str(e)}")
 
 
 

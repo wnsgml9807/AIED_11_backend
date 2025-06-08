@@ -183,7 +183,7 @@ async def get_textbook_content(
 # 🔄  상태 기반 Task 관리  (State에 직접 저장)
 # -----------------------------
 
-from model_config import TaskState
+from model_config import TaskState, FeedbackState
 
 # ───────────────────────────────────────────────
 # State 전용 Task 도구 (통합)
@@ -231,5 +231,44 @@ async def update_task_list(
         update={
         "task_list": validated_tasks,
         "messages": [ToolMessage(content="Task list updated", tool_call_id=tool_call_id, name="update_task_list")]
+            }
+        )
+
+@tool
+async def update_feedback_list(
+    final_feedback_list: List[FeedbackState],
+    state: Annotated[dict, InjectedState],
+    tool_call_id: Annotated[str, InjectedToolCallId],
+):
+    """전체 feedback_list를 최종 상태로 업데이트합니다.
+    
+    Args:
+        final_feedback_list: 날짜별 성찰 피드백의 완전한 목록
+    
+    Returns:
+        Command: feedback_list를 업데이트하는 명령
+    """
+    from langgraph.types import Command
+    
+    #logger.info(f"final_feedback_list: {final_feedback_list}")
+    
+    # FeedbackState 객체들을 검증하고 정리
+    validated_feedbacks = []
+    for feedback in final_feedback_list:
+        if isinstance(feedback, FeedbackState):
+            validated_feedbacks.append(feedback)
+            #logger.info(f"Validated feedback: {feedback}")
+        elif isinstance(feedback, dict):
+            try:
+                validated_feedbacks.append(FeedbackState(**feedback))
+            except Exception as e:
+                logger.error(f"Invalid feedback data: {feedback}, error: {e}")
+        else:
+            logger.error(f"Unknown feedback type: {type(feedback)}")
+
+    return Command(
+        update={
+        "feedback_list": validated_feedbacks,
+        "messages": [ToolMessage(content="Feedback list updated", tool_call_id=tool_call_id, name="update_feedback_list")]
             }
         )

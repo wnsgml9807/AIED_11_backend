@@ -12,6 +12,8 @@ from dotenv import load_dotenv
 import fitz  # PyMuPDF
 import unicodedata
 from openai import AsyncOpenAI
+from PIL import Image
+import io
 
 # 로깅 설정
 logger = logging.getLogger(__name__)
@@ -92,6 +94,70 @@ def extract_text_from_pdf(pdf_path: str) -> List[Dict]:
     except Exception as e:
         logger.error(f"PDF 텍스트 추출 중 오류: {e}")
         return []
+
+async def generate_page_thumbnails(pdf_path: str, session_id: str) -> bool:
+    """
+    PDF의 각 페이지를 썸네일 이미지로 변환하여 저장합니다.
+    
+    Args:
+        pdf_path: PDF 파일 경로
+        session_id: 세션 ID
+        
+    Returns:
+        bool: 성공 여부
+    """
+    try:
+        doc = fitz.open(pdf_path)
+        
+        # 썸네일 저장 디렉토리 생성
+        thumbnails_dir = os.path.join(DB_DIR, f"textbook_{session_id}", "thumbnails")
+        os.makedirs(thumbnails_dir, exist_ok=True)
+        logger.info(f"썸네일 디렉토리 생성: {thumbnails_dir}")
+        
+        # 200 DPI 설정 (A4 기준으로 적절한 크기)
+        zoom = 200 / 72  # 기본 72 DPI에서 200 DPI로 변환
+        mat = fitz.Matrix(zoom, zoom)
+        
+        for page_num in range(len(doc)):
+            page = doc.load_page(page_num)
+            
+            # 페이지를 이미지로 렌더링
+            pix = page.get_pixmap(matrix=mat, alpha=False)
+            
+            # PIL Image로 변환
+            img_data = pix.tobytes("png")
+            img = Image.open(io.BytesIO(img_data))
+            
+            # RGB로 변환 (JPEG 저장을 위해)
+            if img.mode != 'RGB':
+                img = img.convert('RGB')
+            
+            # 썸네일 크기로 리사이즈 (비율 유지)
+            # A4 비율(210:297) 유지하며 너비 300px로 설정
+            thumbnail_width = 300
+            aspect_ratio = img.height / img.width
+            thumbnail_height = int(thumbnail_width * aspect_ratio)
+            
+            img_thumbnail = img.resize((thumbnail_width, thumbnail_height), Image.Resampling.LANCZOS)
+            
+            # 썸네일 저장
+            thumbnail_path = os.path.join(thumbnails_dir, f"page_{page_num + 1}.jpg")
+            img_thumbnail.save(thumbnail_path, "JPEG", quality=90, optimize=True)
+            
+            logger.info(f"페이지 {page_num + 1} 썸네일 생성 완료: {thumbnail_path}")
+            
+            # 10페이지마다 잠시 대기 (시스템 부하 방지)
+            if (page_num + 1) % 10 == 0:
+                await asyncio.sleep(0.1)
+        
+        total_pages = len(doc)
+        doc.close()
+        logger.info(f"모든 페이지 썸네일 생성 완료: 총 {total_pages} 페이지")
+        return True
+        
+    except Exception as e:
+        logger.error(f"썸네일 생성 중 오류: {e}")
+        return False
 
 def create_textbook_collection(filename: str, session_id: str, collection_metadata: Dict) -> chromadb.Collection:
     """
@@ -409,6 +475,13 @@ async def process_pdf_to_vectordb(pdf_path: str, filename: str, session_id: str,
         
         if not success:
             raise Exception("임베딩 처리 중 오류 발생")
+        
+        # 페이지 썸네일 생성
+        logger.info("페이지 썸네일 생성 중...")
+        thumbnail_success = await generate_page_thumbnails(pdf_path, session_id)
+        
+        if not thumbnail_success:
+            logger.warning("썸네일 생성 실패 - 미리보기 기능이 제한될 수 있습니다.")
         
         result = {
             "success": True,

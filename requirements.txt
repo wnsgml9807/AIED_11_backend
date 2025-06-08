@@ -19,6 +19,8 @@ google-genai
 typing-extensions
 aiofiles
 PyMuPDF
+Pillow
 python-multipart
 pandas
 numpy
+gunicorn

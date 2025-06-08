@@ -5,9 +5,9 @@ WORKDIR /app
 # 시스템 패키지 설치
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
-    sqlite3 \
     libsqlite3-dev \
     supervisor \
+    curl \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -23,6 +23,11 @@ RUN mkdir -p DB && \
 
 # Supervisor 설정 파일 생성
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+
+# cloudflared 설치
+RUN curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb && \
+    dpkg -i cloudflared.deb && \
+    rm cloudflared.deb
 
 # 코드 복사
 COPY . .

@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 supervisor_tools = [
     get_textbook_content,
     update_task_list,
+    update_feedback_list,
 ]
 
 

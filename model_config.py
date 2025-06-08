@@ -46,10 +46,37 @@ def merge_task_lists(existing: List[TaskState], new: List[TaskState]) -> List[Ta
     """
     return new
 
+class FeedbackState(BaseModel):
+    """프론트/백엔드 공용 feedback 구조 (단일 피드백)"""
+    date: str = Field(..., description="YYYY-MM-DD 형식의 날짜")
+    feedback: str = Field(..., description="하루 학습 피드백 내용")
+
+def merge_feedback_lists(existing: List[FeedbackState], new: List[FeedbackState]) -> List[FeedbackState]:
+    """
+    Feedback list를 병합하는 reducer 함수.
+    새로운 feedback_list가 들어오면 기존 것을 완전히 대체합니다.
+    """
+    return new
+
+class ObjectState(BaseModel):
+    """프론트/백엔드 공용 Object 구조 (단일 목표)"""
+    date: str = Field(..., description="YYYY-MM-DD 형식의 날짜")
+    header: str = Field(..., description="하루 학습 목표 제목")
+    object: str = Field(..., description="하루 학습 목표 내용")
+
+def merge_object_lists(existing: List[ObjectState], new: List[ObjectState]) -> List[ObjectState]:
+    """
+    Object list를 병합하는 reducer 함수.
+    새로운 object_list가 들어오면 기존 것을 완전히 대체합니다.
+    """
+    return new
+
 # Shared State Schema for all agents
 class MultiAgentState(AgentState):
     messages: Annotated[List[BaseMessage], merge_messages]
     task_list: Annotated[List[TaskState], merge_task_lists] = []  # 세션별 task 관리를 위한 필드
+    feedback_list: Annotated[List[FeedbackState], merge_feedback_lists] = []  # 세션별 feedback 관리를 위한 필드
+    object_list: Annotated[List[ObjectState], merge_object_lists] = []  # 세션별 object 관리를 위한 필드
     professor_type: str = "T형"  # 교수자 타입 (T형 또는 F형)
     session_id: str = "default"  # 세션 ID
 
